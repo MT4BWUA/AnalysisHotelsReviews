@@ -8,6 +8,6 @@ venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 
 # 3. Запустите парсер
-python otzovik_parser.py
+python parser.py
 
 # 4. Результат .csv
