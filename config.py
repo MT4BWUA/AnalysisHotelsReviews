@@ -29,12 +29,12 @@ class Config:
         self.PROGRESS_FILE = 'progress.json'
 
         # Задержки для обхода блокировок
-        self.DELAY_MIN = 8
-        self.DELAY_MAX = 15
-        self.DELAY_BETWEEN_PAGES_MIN = 5
-        self.DELAY_BETWEEN_PAGES_MAX = 10
+        self.DELAY_MIN = 10
+        self.DELAY_MAX = 20
+        self.DELAY_BETWEEN_PAGES_MIN = 3
+        self.DELAY_BETWEEN_PAGES_MAX = 5
         self.DELAY_BETWEEN_HOTELS_MIN = 3
-        self.DELAY_BETWEEN_HOTELS_MAX = 7
+        self.DELAY_BETWEEN_HOTELS_MAX = 5
         self.DELAY_AFTER_BLOCK = 60
         self.MAX_RETRIES = 3
         self.TIMEOUT = 30
