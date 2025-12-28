@@ -2,7 +2,7 @@
 """
 Парсер отзывов с Otzyovik.com для macOS
 Версия с оценкой отзыва и признаком "до 2020"
-Оптимальный баланс скорости и безопасности
+Ускоренная версия с задержками 1-2 секунды
 """
 
 import requests
@@ -29,28 +29,19 @@ class OtzyovikParser:
     def __init__(self, config: Optional[Config] = None):
         self.config = config or Config()
 
-        # ОПТИМАЛЬНЫЕ ЗАДЕРЖКИ
-        if not hasattr(self.config, 'DELAY_MIN'):
-            self.config.DELAY_MIN = 2.0  # Оптимальная задержка между запросами
-        if not hasattr(self.config, 'DELAY_MAX'):
-            self.config.DELAY_MAX = 3.0  # Оптимальная задержка между запросами
-
-        # МИНИМАЛЬНЫЕ ЗАДЕРЖКИ между отелями
-        if not hasattr(self.config, 'DELAY_BETWEEN_HOTELS_MIN'):
-            self.config.DELAY_BETWEEN_HOTELS_MIN = 0.1  # 100 мс
-        if not hasattr(self.config, 'DELAY_BETWEEN_HOTELS_MAX'):
-            self.config.DELAY_BETWEEN_HOTELS_MAX = 1.0  # 1 секунда
-
-        # МИНИМАЛЬНЫЕ ЗАДЕРЖКИ между страницами
-        if not hasattr(self.config, 'DELAY_BETWEEN_PAGES_MIN'):
-            self.config.DELAY_BETWEEN_PAGES_MIN = 0.1  # 100 мс
-        if not hasattr(self.config, 'DELAY_BETWEEN_PAGES_MAX'):
-            self.config.DELAY_BETWEEN_PAGES_MAX = 1.0  # 1 секунда
+        # Установка задержек 1-2 секунды везде
+        self.config.DELAY_MIN = 3.0
+        self.config.DELAY_MAX = 5.0
+        self.config.DELAY_BETWEEN_HOTELS_MIN = 3.0
+        self.config.DELAY_BETWEEN_HOTELS_MAX = 5.0
+        self.config.DELAY_BETWEEN_PAGES_MIN = 3.0
+        self.config.DELAY_BETWEEN_PAGES_MAX = 5.0
+        self.config.DELAY_AFTER_BLOCK = 10  # Уменьшили с 30 до 10 при блокировке
 
         # Проверяем наличие атрибута TIMEOUT
         if not hasattr(self.config, 'TIMEOUT'):
-            print("⚠️  Внимание: у конфигурации нет атрибута TIMEOUT, устанавливаю 30")
-            self.config.TIMEOUT = 30
+            print("⚠️  Внимание: у конфигурации нет атрибута TIMEOUT, устанавливаю 10")
+            self.config.TIMEOUT = 10
 
         self.session = self._create_session()
 
@@ -121,19 +112,10 @@ class OtzyovikParser:
         return session
 
     def _random_delay(self, min_delay=None, max_delay=None):
-        """Случайная задержка между запросами (оптимальная: 2-3 секунды)"""
+        """Случайная задержка между запросами"""
         min_val = min_delay or self.config.DELAY_MIN
         max_val = max_delay or self.config.DELAY_MAX
         delay = random.uniform(min_val, max_val)
-        self.logger.debug(f"Задержка {delay:.2f} секунд")
-        time.sleep(delay)
-
-    def _micro_delay(self):
-        """Микро-задержка между отелями/страницами (0.1-1 секунда)"""
-        delay = random.uniform(
-            self.config.DELAY_BETWEEN_HOTELS_MIN,
-            self.config.DELAY_BETWEEN_HOTELS_MAX
-        )
         time.sleep(delay)
 
     def _is_blocked_response(self, response):
@@ -193,7 +175,16 @@ class OtzyovikParser:
                 'total_requests': self.total_requests,
                 'blocked_count': self.blocked_count,
                 'last_updated': datetime.now().isoformat(),
-                'parser_version': '3.4'  # Оптимальная версия
+                'parser_version': '3.2',  # Обновили версию
+                'delays_config': {
+                    'DELAY_MIN': self.config.DELAY_MIN,
+                    'DELAY_MAX': self.config.DELAY_MAX,
+                    'DELAY_BETWEEN_HOTELS_MIN': self.config.DELAY_BETWEEN_HOTELS_MIN,
+                    'DELAY_BETWEEN_HOTELS_MAX': self.config.DELAY_BETWEEN_HOTELS_MAX,
+                    'DELAY_BETWEEN_PAGES_MIN': self.config.DELAY_BETWEEN_PAGES_MIN,
+                    'DELAY_BETWEEN_PAGES_MAX': self.config.DELAY_BETWEEN_PAGES_MAX,
+                    'DELAY_AFTER_BLOCK': self.config.DELAY_AFTER_BLOCK
+                }
             }
 
             with open(self.config.PROGRESS_FILE, 'w', encoding='utf-8') as f:
@@ -257,7 +248,7 @@ class OtzyovikParser:
         """Выполнение HTTP-запроса с обработкой ошибок"""
         self.total_requests += 1
 
-        # Оптимальная задержка перед запросом (2-3 секунды)
+        # Задержка перед запросом (1-2 сек)
         self._random_delay()
 
         try:
@@ -310,14 +301,14 @@ class OtzyovikParser:
         except requests.exceptions.Timeout:
             self.logger.warning(f"Таймаут при запросе к {url}")
             if retry_count < self.config.MAX_RETRIES:
-                time.sleep(5 * (retry_count + 1))
+                time.sleep(2 * (retry_count + 1))  # Уменьшено задержки при таймауте
                 return self.make_request(url, referer, retry_count + 1)
             return None
 
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Ошибка сети при запросе к {url}: {e}")
             if retry_count < self.config.MAX_RETRIES:
-                time.sleep(3 * (retry_count + 1))
+                time.sleep(1 * (retry_count + 1))  # Уменьшено задержки при ошибке сети
                 return self.make_request(url, referer, retry_count + 1)
             return None
 
@@ -779,12 +770,8 @@ class OtzyovikParser:
                 total_before_2020 += before_2020_count
 
                 print(f"      ✅ Собрано {len(reviews)} отзывов")
-                if reviews:
-                    valid_ratings = [r.get('review_rating_numeric', 0) for r in reviews if
-                                     r.get('review_rating_numeric') is not None]
-                    if valid_ratings:
-                        avg_rating = sum(valid_ratings) / len(valid_ratings)
-                        print(f"         📊 Средняя оценка: {avg_rating:.1f}")
+                print(
+                    f"         📊 Средняя оценка: {sum(r.get('review_rating_numeric', 0) for r in reviews) / len(reviews):.1f}")
                 print(f"         🗓️  До 2020 года: {before_2020_count} отзывов")
 
                 # Выводим информацию по первым отзывам
@@ -802,14 +789,19 @@ class OtzyovikParser:
             # Помечаем отель как обработанный
             self.processed_hotels.add(hotel['url'])
 
-            # Сохраняем прогресс каждые 5 отелей
-            if i % 5 == 0:
+            # Сохраняем прогресс каждые 10 отелей
+            if i % 10 == 0:
                 self._save_progress()
                 self._save_results()
 
-            # МИКРО-ЗАДЕРЖКА между отелями (0.1-1 секунда)
+            # Задержка между отелями (1-2 сек)
             if i < len(hotels):
-                self._micro_delay()
+                delay = random.uniform(
+                    self.config.DELAY_BETWEEN_HOTELS_MIN,
+                    self.config.DELAY_BETWEEN_HOTELS_MAX
+                )
+                if delay > 0:
+                    time.sleep(delay)
 
         # Помечаем страницу как обработанную
         self.processed_pages.add(page_num)
@@ -829,15 +821,16 @@ class OtzyovikParser:
             end_page = self.config.MAX_PAGES
 
         print("=" * 70)
-        print("🚀 ПАРСЕР OTZOVIK.COM - ОПТИМАЛЬНАЯ ВЕРСИЯ")
+        print("🚀 ПАРСЕР OTZOVIK.COM - ЗАПУСК (СКОРОСТНАЯ ВЕРСИЯ)")
         print("=" * 70)
         print(f"📅 Начало работы: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"📄 Диапазон страниц: {start_page} - {end_page}")
-        print(f"⏱️  Задержки между запросами: {self.config.DELAY_MIN}-{self.config.DELAY_MAX} сек")
+        print(f"⚡ ВСЕ ЗАДЕРЖКИ УСТАНОВЛЕНЫ В 1-2 СЕКУНДЫ:")
+        print(f"   • Между запросами: {self.config.DELAY_MIN:.1f}-{self.config.DELAY_MAX:.1f} сек")
         print(
-            f"🏨 Задержки между отелями: {self.config.DELAY_BETWEEN_HOTELS_MIN}-{self.config.DELAY_BETWEEN_HOTELS_MAX} сек")
+            f"   • Между отелями: {self.config.DELAY_BETWEEN_HOTELS_MIN:.1f}-{self.config.DELAY_BETWEEN_HOTELS_MAX:.1f} сек")
         print(
-            f"📄 Задержки между страницами: {self.config.DELAY_BETWEEN_PAGES_MIN}-{self.config.DELAY_BETWEEN_PAGES_MAX} сек")
+            f"   • Между страницами: {self.config.DELAY_BETWEEN_PAGES_MIN:.1f}-{self.config.DELAY_BETWEEN_PAGES_MAX:.1f} сек")
         print(
             f"💾 Прогресс: {len(self.processed_pages)} стр., {len(self.processed_hotels)} отелей, {len(self.results)} отзывов")
         print("=" * 70)
@@ -854,17 +847,22 @@ class OtzyovikParser:
                 if success:
                     successful_pages += 1
 
-                # МИКРО-ЗАДЕРЖКА между страницами (0.1-1 секунда)
+                # Задержка между страницами (1-2 сек)
                 if page_num < end_page:
-                    self._micro_delay()
+                    delay = random.uniform(
+                        self.config.DELAY_BETWEEN_PAGES_MIN,
+                        self.config.DELAY_BETWEEN_PAGES_MAX
+                    )
+                    if delay > 0:
+                        print(f"\n⏳ Пауза {delay:.1f} сек перед следующей страницей...")
+                        time.sleep(delay)
 
             # Финальный отчет
             elapsed_time = datetime.now() - self.start_time
 
             # Статистика по оценкам и годам
             if self.results:
-                ratings = [r.get('review_rating_numeric', 0) for r in self.results if
-                           r.get('review_rating_numeric') is not None]
+                ratings = [r.get('review_rating_numeric', 0) for r in self.results if r.get('review_rating_numeric')]
                 before_2020_count = sum(1 for r in self.results if r.get('before_2020'))
 
                 avg_rating = sum(ratings) / len(ratings) if ratings else 0
@@ -885,7 +883,12 @@ class OtzyovikParser:
             print(f"   Всего запросов: {self.total_requests}")
             print(f"   Блокировок: {self.blocked_count}")
             print(f"   Затраченное время: {elapsed_time}")
-            print(f"   Скорость: {self.total_requests / elapsed_time.total_seconds():.2f} запросов/сек")
+
+            # Расчет времени на отзыв
+            if self.total_requests > 0 and elapsed_time.total_seconds() > 0:
+                time_per_request = elapsed_time.total_seconds() / self.total_requests
+                print(f"   Среднее время на запрос: {time_per_request:.2f} сек")
+
             print(f"\n💾 ФАЙЛЫ:")
             print(f"   Отзывы (CSV): {self.config.OUTPUT_FILE}")
             print(f"   Отзывы (JSON): {self.config.OUTPUT_FILE.replace('.csv', '.json')}")
@@ -906,16 +909,16 @@ class OtzyovikParser:
                 'start_time': self.start_time.isoformat(),
                 'end_time': datetime.now().isoformat(),
                 'elapsed_seconds': elapsed_time.total_seconds(),
-                'requests_per_second': self.total_requests / elapsed_time.total_seconds() if elapsed_time.total_seconds() > 0 else 0,
                 'start_page': start_page,
                 'end_page': end_page,
                 'delays_config': {
-                    'delay_min': self.config.DELAY_MIN,
-                    'delay_max': self.config.DELAY_MAX,
-                    'delay_between_hotels_min': self.config.DELAY_BETWEEN_HOTELS_MIN,
-                    'delay_between_hotels_max': self.config.DELAY_BETWEEN_HOTELS_MAX,
-                    'delay_between_pages_min': self.config.DELAY_BETWEEN_PAGES_MIN,
-                    'delay_between_pages_max': self.config.DELAY_BETWEEN_PAGES_MAX,
+                    'DELAY_MIN': self.config.DELAY_MIN,
+                    'DELAY_MAX': self.config.DELAY_MAX,
+                    'DELAY_BETWEEN_HOTELS_MIN': self.config.DELAY_BETWEEN_HOTELS_MIN,
+                    'DELAY_BETWEEN_HOTELS_MAX': self.config.DELAY_BETWEEN_HOTELS_MAX,
+                    'DELAY_BETWEEN_PAGES_MIN': self.config.DELAY_BETWEEN_PAGES_MIN,
+                    'DELAY_BETWEEN_PAGES_MAX': self.config.DELAY_BETWEEN_PAGES_MAX,
+                    'DELAY_AFTER_BLOCK': self.config.DELAY_AFTER_BLOCK
                 }
             }
 
@@ -924,10 +927,10 @@ class OtzyovikParser:
                 stats['reviews_before_2020'] = before_2020_count
                 stats['percent_before_2020'] = before_2020_percent
 
-            with open('scraping_stats.json', 'w', encoding='utf-8') as f:
+            with open('data/scraping_stats.json', 'w', encoding='utf-8') as f:
                 json.dump(stats, f, ensure_ascii=False, indent=2)
 
-            print(f"📈 Статистика сохранена в scraping_stats.json")
+            print(f"📈 Статистика сохранена в data/scraping_stats.json")
 
         except KeyboardInterrupt:
             print("\n\n⏹️  СКРАПИНГ ПРЕРВАН ПОЛЬЗОВАТЕЛЕМ")
@@ -949,9 +952,9 @@ class OtzyovikParser:
 def main():
     """Основная функция запуска"""
     print("=" * 70)
-    print("ПАРСЕР OTZOVIK.COM - ОПТИМАЛЬНАЯ ВЕРСИЯ")
+    print("ПАРСЕР OTZOVIK.COM - ОЦЕНКИ ОТЗЫВОВ И ПРИЗНАК 'ДО 2020'")
     print("=" * 70)
-    print("Версия 3.4: Оптимальный баланс скорости и безопасности")
+    print("Версия 3.2: СКОРОСТНАЯ ВЕРСИЯ - ВСЕ ЗАДЕРЖКИ 1-2 СЕКУНДЫ")
     print("=" * 70)
 
     # Проверка зависимостей
@@ -968,26 +971,18 @@ def main():
 
     # Загружаем конфигурацию
     config = Config()
-
-    # УСТАНАВЛИВАЕМ ОПТИМАЛЬНЫЕ ЗАДЕРЖКИ
-    config.DELAY_MIN = 2.0  # 2 секунды
-    config.DELAY_MAX = 3.0  # 3 секунды
-    config.DELAY_BETWEEN_HOTELS_MIN = 0.1  # 100 мс
-    config.DELAY_BETWEEN_HOTELS_MAX = 1.0  # 1 секунда
-    config.DELAY_BETWEEN_PAGES_MIN = 0.1  # 100 мс
-    config.DELAY_BETWEEN_PAGES_MAX = 1.0  # 1 секунда
-
-    print("⚙️  Оптимальные настройки задержек:")
-    print(f"   - Между запросами: {config.DELAY_MIN}-{config.DELAY_MAX} сек")
-    print(f"   - Между отелями: {config.DELAY_BETWEEN_HOTELS_MIN}-{config.DELAY_BETWEEN_HOTELS_MAX} сек")
-    print(f"   - Между страницами: {config.DELAY_BETWEEN_PAGES_MIN}-{config.DELAY_BETWEEN_PAGES_MAX} сек")
-    print("\n✅ Оптимальный баланс: быстро, но с минимальным риском блокировки")
-
     config.display()
 
     # Настройка параметров
     try:
-        print("\n⚙️  НАСТРОЙКА ПАРАМЕТРОВ")
+        print("\n⚙️  НАСТРОЙКА ПАРАМЕТРОВ (СКОРОСТНАЯ ВЕРСИЯ)")
+        print("-" * 40)
+        print("⚡ ВСЕ ЗАДЕРЖКИ УСТАНОВЛЕНЫ В 1-2 СЕКУНДЫ:")
+        print(f"   • Между запросами: 1-2 сек")
+        print(f"   • Между отелями: 1-2 сек")
+        print(f"   • Между страницами: 1-2 сек")
+        print(f"   • После блокировки: 10 сек (было 30)")
+        print(f"   • Таймаут запроса: 10 сек")
         print("-" * 40)
 
         # Начальная страница
@@ -1021,24 +1016,26 @@ def main():
             start_page, end_page = end_page, start_page
             print(f"Диапазон скорректирован: {start_page}-{end_page}")
 
-        # Предупреждение при большом количестве страниц
+        # Расчет примерного времени
         total_pages = end_page - start_page + 1
-        if total_pages > 50:
-            print(f"\n⚠️  ВНИМАНИЕ: Вы собираетесь парсить {total_pages} страниц!")
-            print(f"   Примерное время: {(total_pages * 4) / 3600:.1f} часов")
+        # Примерное время на страницу: 10 отелей * 2 сек = 20 сек + 2 сек задержка = ~22 сек
+        estimated_time_per_page = 22  # секунд
+        total_seconds = total_pages * estimated_time_per_page
+        total_minutes = total_seconds / 60
 
         print(f"\n📋 ПАРАМЕТРЫ ЗАПУСКА:")
         print(f"   Страницы: {start_page} - {end_page}")
         print(f"   Всего страниц: {total_pages}")
-        print(f"   Задержки между запросами: {config.DELAY_MIN}-{config.DELAY_MAX} сек")
-        print(f"   Задержки между отелями: {config.DELAY_BETWEEN_HOTELS_MIN}-{config.DELAY_BETWEEN_HOTELS_MAX} сек")
-        print(f"   Задержки между страницами: {config.DELAY_BETWEEN_PAGES_MIN}-{config.DELAY_BETWEEN_PAGES_MAX} сек")
+        print(f"   ⚡ Режим: СКОРОСТНОЙ (все задержки 1-2 сек)")
+        print(f"   Примерное время: ~{total_minutes:.1f} мин ({total_seconds / 3600:.1f} часов)")
         print(f"   Собираемые данные:")
         print(f"     ✓ Оценка каждого отзыва")
         print(f"     ✓ Признак 'до 2020 года'")
         print(f"     ✓ Даты отзывов")
+        print(f"\n⚠️  ВНИМАНИЕ: Высокая скорость может привести к блокировке!")
+        print("   При частых блокировках увеличьте задержки в config.py")
 
-        confirm = input("\n🚀 Запустить парсер? (y/N): ").strip().lower()
+        confirm = input("\n🚀 Запустить парсер в скоростном режиме? (y/N): ").strip().lower()
 
         if confirm not in ['y', 'yes', 'д', 'да']:
             print("Отменено.")
