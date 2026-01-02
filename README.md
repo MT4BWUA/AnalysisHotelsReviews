@@ -11,3 +11,5 @@ pip install -r requirements.txt
 python parser.py
 
 # 4. Результат .csv
+Всего отелей: 7821
+Всего отзывов: 47781
