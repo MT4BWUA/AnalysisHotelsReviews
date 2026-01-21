@@ -25,4 +25,4 @@ python parser.py
 
 # Qr-код на Datalens
 
-![Qr-code](../qr-code.png)
+![Qr-code](qr-code.png)
